@@ -1,0 +1,18 @@
+<launch>
+
+    <rosparam file="$(find offboard_control)/cfg/set_point.yaml" />
+
+
+    <node pkg="offboard_control" type="controller_uav_node" name="controller_uav_node" output="screen">
+
+        <param name="test_fly_waypoint" value="true" />
+        <!-- <param name="enable_sim" value="true"/> -->
+
+        <param name="init_pos_x" value="0.0"/>
+        <param name="init_pos_y" value="0.0"/>
+        <param name="init_pos_z" value="1.0"/>
+        <param name="init_yaw" value="45.0"/>
+
+    </node>
+
+</launch>
