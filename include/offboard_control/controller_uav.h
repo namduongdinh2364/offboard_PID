@@ -40,6 +40,17 @@
 using namespace std;
 using namespace Eigen;
 
+enum class Axis {
+	ROLL,
+	PTICH,
+	YAW,
+};
+
+enum class Frame {
+	UAV_NEU_FRAME,
+	UAV_BODY_OFFSET_FRAME,
+};
+
 class velocityCtrl
 {
 	private:
@@ -107,6 +118,7 @@ class velocityCtrl
 		double targetYaw_;
 		double mavCurrYaw_;
 		Eigen::Vector3d targetPos_;
+		Eigen::Matrix3d RotationBodyToNEU;
 
 		PidControllerBase PID_x, PID_y, PID_z, PID_yaw;
 
@@ -127,6 +139,8 @@ class velocityCtrl
 		bool check_position(float error, Eigen::Vector3d current, Eigen::Vector3d target);
 		void publish_PIDterm( double pTerm, double iTerm, double dTerm);
 
+		void getErrorDistanceToTarget(const Eigen::Vector3d &target_position, Frame FrameType, Eigen::Vector3d &ErrorDistance);
+		void convertPointFromOffsetBodyToNEU(const Eigen::Vector3d &PointBody, Eigen::Vector3d &PointNEU);
 };
 
 #endif

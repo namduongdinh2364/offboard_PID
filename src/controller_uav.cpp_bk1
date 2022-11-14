@@ -294,25 +294,13 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 					if(test_fly_waypoint_
 						&& check_position(error, mavPos_, targetPos_)
 						&& index_setpoint < 4)
-						// && abs((DEGREE_TO_RADIAN(targetYaw_)- mavCurrYaw_)) <= 0.1)
 					{
 
-						targetYaw_ = setPoint_[index_setpoint].at(3);
+						// targetYaw_ = setPoint_[index_setpoint].at(3);
 
-						// if (USE_BODY_OFFSET) {
-						// 	Eigen::Vector3d OffsetPosInBody;
-
-						// 	OffsetPosInBody(0) = setPoint_[index_setpoint].at(0);
-						// 	OffsetPosInBody(1) = setPoint_[index_setpoint].at(1);
-						// 	OffsetPosInBody(2) = setPoint_[index_setpoint].at(2);
-
-						// 	convertPointFromOffsetBodyToNEU(OffsetPosInBody, targetPos_);
-						// } else {
-
-							targetPos_(1) = setPoint_[index_setpoint].at(1);
-							targetPos_(0) = setPoint_[index_setpoint].at(0);
-							targetPos_(2) = setPoint_[index_setpoint].at(2);
-						// }
+						targetPos_(1) = setPoint_[index_setpoint].at(1);
+						targetPos_(0) = setPoint_[index_setpoint].at(0);
+						targetPos_(2) = setPoint_[index_setpoint].at(2);
 
 						index_setpoint ++;
 						cout << "index: " << index_setpoint << endl;
@@ -325,13 +313,12 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 					 * UAV_BODY_FRAME: If target is a point offset in the BODY frame
 					*/
 					getErrorDistanceToTarget(targetPos_, Frame::UAV_NEU_FRAME, ErrorDistance);
-					// ROS_INFO_STREAM(ErrorDistance);
 
 					velocity_vector(0) = PID_x.compute(ErrorDistance(0), 0);
 					velocity_vector(1) = PID_y.compute(ErrorDistance(1), 0);
 					velocity_vector(2) = PID_z.compute(ErrorDistance(2), 0);
 
-					velocity_vector(3) = PID_yaw.compute(DEGREE_TO_RADIAN(targetYaw_), mavCurrYaw_);
+					// velocity_vector(3) = PID_yaw.compute(DEGREE_TO_RADIAN(targetYaw_), mavCurrYaw_);
 
 					publish_PIDterm(PID_z.getPTerm(),PID_z.getITerm(), PID_z.getDTerm());
 					// ROS_INFO_STREAM("Got pose! Drone Velocity x " << velocity_vector(0) << " y " << velocity_vector(1) << " z " << velocity_vector(2));
@@ -447,14 +434,14 @@ void velocityCtrl::pubVelocity(const Eigen::Vector4d &desire_velicity_){
 
 	setpoint_local.coordinate_frame = mavros_msgs::PositionTarget::FRAME_BODY_NED;
 
-	setpoint_local.type_mask = 963;
+	setpoint_local.type_mask = 1987;
 
 	setpoint_local.velocity.x = desire_velicity_(0);
 	setpoint_local.velocity.y = desire_velicity_(1);
 	setpoint_local.velocity.z = desire_velicity_(2);
 
-	// setpoint_local.yaw = DEGREE_TO_RADIAN(45);
-	setpoint_local.yaw_rate = desire_velicity_(3);
+	// setpoint_local.yaw = DEGREE_TO_RADIAN(90);
+	// setpoint_local.yaw_rate = desire_velicity_(3);
 
 	setRaw_pub.publish(setpoint_local);
 }
