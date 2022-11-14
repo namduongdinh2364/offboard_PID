@@ -23,9 +23,10 @@
 #include <std_msgs/Float32.h>
 // #include <Eigen/Dense>
 #include <eigen3/Eigen/Dense>
-#include <eigen3/Eigen/Geometry>
 #include <eigen3/Eigen/Core>
+#include <eigen3/Eigen/Geometry>
 
+#include <std_msgs/Bool.h>
 
 #include <dynamic_reconfigure/server.h>
 #include <offboard_control/VelocityControllerConfig.h>
@@ -64,11 +65,16 @@ class velocityCtrl
 		ros::Subscriber yawreferenceSub_;
 		ros::Subscriber target_pose;
 
+		ros::Subscriber marker_pose_sub;
+		ros::Subscriber decrese_height_sub;
+
 		ros::ServiceClient arming_client_;
 		ros::ServiceClient set_mode_client_;
 
 		ros::Timer cmdloop_timer_, statusloop_timer_;
+
 		ros::ServiceServer land_service_;
+		ros::ServiceServer start_land_service_;
 
 		Eigen::Vector3d mavPos_, mavVel_, mavRate_;
 		Eigen::Vector4d mavAtt_;
@@ -118,7 +124,11 @@ class velocityCtrl
 		double targetYaw_;
 		double mavCurrYaw_;
 		Eigen::Vector3d targetPos_;
+		Eigen::Vector3d markerPosInBodyFrame_;
 		Eigen::Matrix3d RotationBodyToNEU;
+		Eigen::Matrix3d cam2drone_matrix_;
+
+		bool AllowDecreaseHeight_, StartLanding_;
 
 		PidControllerBase PID_x, PID_y, PID_z, PID_yaw;
 
@@ -141,6 +151,12 @@ class velocityCtrl
 
 		void getErrorDistanceToTarget(const Eigen::Vector3d &target_position, Frame FrameType, Eigen::Vector3d &ErrorDistance);
 		void convertPointFromOffsetBodyToNEU(const Eigen::Vector3d &PointBody, Eigen::Vector3d &PointNEU);
+
+		void ReceivedMarkerPose_Callback(const geometry_msgs::PoseStamped &msg);
+
+		void CheckAllowDecreaseHeight_Callback(const std_msgs::Bool &msg);
+
+		bool EnableLand_Service(std_srvs::SetBool::Request &request, std_srvs::SetBool::Response &response);
 };
 
 #endif

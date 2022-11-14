@@ -10,6 +10,7 @@
 #define PI						3.14159265
 #define RADIAN_TO_DEGREE(x)		(x * (180 / PI))
 #define DEGREE_TO_RADIAN(x)		(x * (PI / 180))
+#define	DISTANCE_ON_MARKER(x)	x*(-1)
 
 #define USE_MARKER				0
 #define USE_BODY_OFFSET			1
@@ -79,18 +80,26 @@ velocityCtrl::velocityCtrl(const ros::NodeHandle &nh, const ros::NodeHandle &nh_
 
 	debug_target = nh_.advertise<geometry_msgs::Vector3> ("/debug_term", 10);
 
+	marker_pose_sub = nh_.subscribe
+		("/tf_marker", 1, &velocityCtrl::ReceivedMarkerPose_Callback, this, ros::TransportHints().tcpNoDelay());
+
+	decrese_height_sub = nh_.subscribe
+		("/decrease_height", 1, &velocityCtrl::CheckAllowDecreaseHeight_Callback, this, ros::TransportHints().tcpNoDelay());
+
+	start_land_service_ = nh_.advertiseService("start_landing", &velocityCtrl::EnableLand_Service, this);
+
 	nh_private_.param<double>("init_pos_x", initTargetPos_x_, 0.0);
 	nh_private_.param<double>("init_pos_y", initTargetPos_y_, 0.0);
 	nh_private_.param<double>("init_pos_z", initTargetPos_z_, 1.0);
 	nh_private_.param<double>("init_yaw", initTarget_yaw_, 0.0);
 
-	nh_private_.param<double>("Kp_x", kpx_, 0.72);
-	nh_private_.param<double>("Kd_x", kdx_, 0.52);
-	nh_private_.param<double>("Ki_x", kix_, 0.0);
+	nh_private_.param<double>("Kp_x", kpx_, 1.4);
+	nh_private_.param<double>("Kd_x", kdx_, 1.1);
+	nh_private_.param<double>("Ki_x", kix_, 0.3);
 
-	nh_private_.param<double>("Kp_y", kpy_, 0.5);
-	nh_private_.param<double>("Kd_y", kdy_, 0.5);
-	nh_private_.param<double>("Ki_y", kiy_, 0.0);
+	nh_private_.param<double>("Kp_y", kpy_, 1.4);
+	nh_private_.param<double>("Kd_y", kdy_, 1.1);
+	nh_private_.param<double>("Ki_y", kiy_, 0.3);
 
 	nh_private_.param<double>("Kp_z", kpz_, 0.7);
 	nh_private_.param<double>("Kd_z", kdz_, 0.52);
@@ -154,13 +163,47 @@ velocityCtrl::velocityCtrl(const ros::NodeHandle &nh, const ros::NodeHandle &nh_
 	PID_yaw.SetModeD(ON_ERROR);
 
 	error = 0.15;
+
+	cam2drone_matrix_ << 0.0 , -1.0 , 0.0 , -1.0 , 0.0 , 0.0 , 0.0 , 0.0 , -1.0;
 }
+
+void velocityCtrl::ReceivedMarkerPose_Callback(const geometry_msgs::PoseStamped &msg){
+
+	Eigen::Vector3d markerInCamFrame;
+	/* Marker ----> Drone Frame*/
+	markerInCamFrame << msg.pose.position.x, msg.pose.position.y, msg.pose.position.z;
+
+	markerPosInBodyFrame_ = cam2drone_matrix_ * markerInCamFrame;
+
+	// Round cm
+	markerPosInBodyFrame_(0) = round(markerPosInBodyFrame_(0)*100) / 100;
+	markerPosInBodyFrame_(1) = round(markerPosInBodyFrame_(1)*100) / 100;
+	markerPosInBodyFrame_(2) = round(markerPosInBodyFrame_(2)*100) / 100;
+
+	ROS_INFO_STREAM("Distance to Marker: " << markerPosInBodyFrame_);
+	// received_marker_pose =true;
+	// std::cout << "point des" << point_des << std::endl;
+};
 
 void velocityCtrl::targetPositioncallback(const geometry_msgs::PoseStamped &msg){
 
 	targetPos_ = toEigen(msg.pose.position);
 
 }
+
+void velocityCtrl::CheckAllowDecreaseHeight_Callback(const std_msgs::Bool &msg){
+
+	AllowDecreaseHeight_ = msg.data;
+}
+
+bool velocityCtrl::EnableLand_Service(std_srvs::SetBool::Request &request, std_srvs::SetBool::Response &response) {
+
+	ROS_INFO_STREAM("Start landing on marker.");
+	StartLanding_ = true;
+
+	return true;
+}
+
 void velocityCtrl::mavposeCallback(const geometry_msgs::PoseStamped &msg) {
 
 	if (!received_home_pose)
@@ -232,6 +275,12 @@ void velocityCtrl::statusloopCallback(const ros::TimerEvent &event) {
 	// 	}
 
 	// }
+
+
+	if(mavPos_(2) > 20.0){
+		node_state = LANDING;
+	}
+
 }
 
 bool velocityCtrl::landCallback(std_srvs::SetBool::Request &request, std_srvs::SetBool::Response &response) {
@@ -292,27 +341,13 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 					Eigen::Vector3d ErrorDistance;
 
 					if(test_fly_waypoint_
+						&& !StartLanding_
 						&& check_position(error, mavPos_, targetPos_)
 						&& index_setpoint < 4)
-						// && abs((DEGREE_TO_RADIAN(targetYaw_)- mavCurrYaw_)) <= 0.1)
 					{
-
-						targetYaw_ = setPoint_[index_setpoint].at(3);
-
-						// if (USE_BODY_OFFSET) {
-						// 	Eigen::Vector3d OffsetPosInBody;
-
-						// 	OffsetPosInBody(0) = setPoint_[index_setpoint].at(0);
-						// 	OffsetPosInBody(1) = setPoint_[index_setpoint].at(1);
-						// 	OffsetPosInBody(2) = setPoint_[index_setpoint].at(2);
-
-						// 	convertPointFromOffsetBodyToNEU(OffsetPosInBody, targetPos_);
-						// } else {
-
-							targetPos_(1) = setPoint_[index_setpoint].at(1);
-							targetPos_(0) = setPoint_[index_setpoint].at(0);
-							targetPos_(2) = setPoint_[index_setpoint].at(2);
-						// }
+						targetPos_(1) = setPoint_[index_setpoint].at(1);
+						targetPos_(0) = setPoint_[index_setpoint].at(0);
+						targetPos_(2) = setPoint_[index_setpoint].at(2);
 
 						index_setpoint ++;
 						cout << "index: " << index_setpoint << endl;
@@ -320,18 +355,40 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 						ROS_INFO_STREAM(targetPos_);
 					}
 
+					// Service start landing is called
+					if (StartLanding_) {
+
+						targetPos_(0) = markerPosInBodyFrame_(0);
+						targetPos_(1) = markerPosInBodyFrame_(1);
+
+						if (AllowDecreaseHeight_) {
+
+							targetPos_(2) =  mavPos_(2) - 0.3;
+
+						} else {
+
+							targetPos_(2) =  mavPos_(2);
+						}
+
+						if (DISTANCE_ON_MARKER(markerPosInBodyFrame_(2)) < 1.0) {
+							/* Change control mode */
+							node_state = LANDING;
+						}
+
+						getErrorDistanceToTarget(targetPos_, Frame::UAV_BODY_OFFSET_FRAME, ErrorDistance);
+					}
+
 					/*
 					 * UAV_NEU_FRAME: If target is a point in the NEU frame
 					 * UAV_BODY_FRAME: If target is a point offset in the BODY frame
 					*/
-					getErrorDistanceToTarget(targetPos_, Frame::UAV_NEU_FRAME, ErrorDistance);
-					// ROS_INFO_STREAM(ErrorDistance);
+					if (!StartLanding_) {
+						getErrorDistanceToTarget(targetPos_, Frame::UAV_NEU_FRAME, ErrorDistance);
+					}
 
 					velocity_vector(0) = PID_x.compute(ErrorDistance(0), 0);
 					velocity_vector(1) = PID_y.compute(ErrorDistance(1), 0);
 					velocity_vector(2) = PID_z.compute(ErrorDistance(2), 0);
-
-					velocity_vector(3) = PID_yaw.compute(DEGREE_TO_RADIAN(targetYaw_), mavCurrYaw_);
 
 					publish_PIDterm(PID_z.getPTerm(),PID_z.getITerm(), PID_z.getDTerm());
 					// ROS_INFO_STREAM("Got pose! Drone Velocity x " << velocity_vector(0) << " y " << velocity_vector(1) << " z " << velocity_vector(2));
@@ -344,10 +401,6 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 					debug_target.publish(msg);
 
 					pubVelocity(velocity_vector);
-
-					if(mavPos_(2) > 10.0){
-						node_state = LANDING;
-					}
 
 					break;
 				}
@@ -388,7 +441,7 @@ void velocityCtrl::getErrorDistanceToTarget(const Eigen::Vector3d &target_positi
 
 			ErrorDistance(0) = target_position(0);
 			ErrorDistance(1) = target_position(1);
-			ErrorDistance(2) = target_position(2);
+			ErrorDistance(2) = -target_position(2);
 		}
 			break;
 		case Frame::UAV_NEU_FRAME: {
@@ -447,14 +500,14 @@ void velocityCtrl::pubVelocity(const Eigen::Vector4d &desire_velicity_){
 
 	setpoint_local.coordinate_frame = mavros_msgs::PositionTarget::FRAME_BODY_NED;
 
-	setpoint_local.type_mask = 963;
+	setpoint_local.type_mask = 1987;
 
 	setpoint_local.velocity.x = desire_velicity_(0);
 	setpoint_local.velocity.y = desire_velicity_(1);
 	setpoint_local.velocity.z = desire_velicity_(2);
 
-	// setpoint_local.yaw = DEGREE_TO_RADIAN(45);
-	setpoint_local.yaw_rate = desire_velicity_(3);
+	// setpoint_local.yaw = DEGREE_TO_RADIAN(90);
+	// setpoint_local.yaw_rate = desire_velicity_(3);
 
 	setRaw_pub.publish(setpoint_local);
 }
