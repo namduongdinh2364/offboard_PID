@@ -109,8 +109,8 @@ velocityCtrl::velocityCtrl(const ros::NodeHandle &nh, const ros::NodeHandle &nh_
 	nh_private_.param<double>("kd_yaw_", kdyaw_, 0.5);
 	nh_private_.param<double>("ki_yaw_", kiyaw_, 0.0);
 
-	nh_private_.param<double>("max_out", max_out_, 1.5);
-	nh_private_.param<double>("min_out", min_out_, -1.5);
+	nh_private_.param<double>("max_out", max_out_, 0.2);
+	nh_private_.param<double>("min_out", min_out_, -0.2);
 
 	/* Get param set points */
 	if (test_fly_waypoint_) {
@@ -363,17 +363,17 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 
 						if (AllowDecreaseHeight_) {
 
-							targetPos_(2) =  mavPos_(2) - 0.3;
+							targetPos_(2) =  markerPosInBodyFrame_(2);
 
 						} else {
 
-							targetPos_(2) =  mavPos_(2);
+							targetPos_(2) =  0.0;
 						}
 
-						if (DISTANCE_ON_MARKER(markerPosInBodyFrame_(2)) < 1.0) {
-							/* Change control mode */
-							node_state = LANDING;
-						}
+						// if (DISTANCE_ON_MARKER(-markerPosInBodyFrame_(2)) < 1.0) {
+						// 	/* Change control mode */
+						// 	node_state = LANDING;
+						// }
 
 						getErrorDistanceToTarget(targetPos_, Frame::UAV_BODY_OFFSET_FRAME, ErrorDistance);
 					}
@@ -441,7 +441,7 @@ void velocityCtrl::getErrorDistanceToTarget(const Eigen::Vector3d &target_positi
 
 			ErrorDistance(0) = target_position(0);
 			ErrorDistance(1) = target_position(1);
-			ErrorDistance(2) = -target_position(2);
+			ErrorDistance(2) = target_position(2);
 		}
 			break;
 		case Frame::UAV_NEU_FRAME: {
@@ -501,6 +501,8 @@ void velocityCtrl::pubVelocity(const Eigen::Vector4d &desire_velicity_){
 	setpoint_local.coordinate_frame = mavros_msgs::PositionTarget::FRAME_BODY_NED;
 
 	setpoint_local.type_mask = 1987;
+
+	// setpoint_local.position.z = mavPos_(2) - 0.3;
 
 	setpoint_local.velocity.x = desire_velicity_(0);
 	setpoint_local.velocity.y = desire_velicity_(1);
