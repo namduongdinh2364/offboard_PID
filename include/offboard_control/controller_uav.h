@@ -41,6 +41,19 @@
 using namespace std;
 using namespace Eigen;
 
+#define NOT_RECEIVED_POSE	0
+#define RECEIVED_POSE		1
+
+#define CALCULATED			1
+#define NOT_CALCULATED		0
+
+#define ALLOW_DECREASE		1
+#define NOT_ALLOW_DECREASE	0
+
+#define ANGLE_1 			15.0
+#define ANGLE_2 			10.0
+#define ANGLE_3 			10.0
+
 enum class Axis {
 	ROLL,
 	PTICH,
@@ -50,6 +63,13 @@ enum class Axis {
 enum class Frame {
 	UAV_NEU_FRAME,
 	UAV_BODY_OFFSET_FRAME,
+};
+
+struct TransitionPoint {
+
+	double range;
+	double atitule;
+
 };
 
 class velocityCtrl
@@ -97,6 +117,11 @@ class velocityCtrl
 		bool test_fly_waypoint_;
 		bool received_home_pose;
 
+		double marker_pose_status, calculate_range;
+		double range_err;
+		struct TransitionPoint sTransitionPoint_1, sTransitionPoint_2, sTransitionPoint_3;
+
+
 		double error;
 		template <class T>
 		void waitForPredicate(const T *pred, const std::string &msg, double hz = 2.0) {
@@ -123,7 +148,7 @@ class velocityCtrl
 
 		double targetYaw_;
 		double mavCurrYaw_;
-		Eigen::Vector3d targetPos_;
+		Eigen::Vector3d targetPos_, targetPosPredict_;
 		Eigen::Vector3d markerPosInBodyFrame_;
 		Eigen::Matrix3d RotationBodyToNEU;
 		Eigen::Matrix3d cam2drone_matrix_;
@@ -157,6 +182,8 @@ class velocityCtrl
 		void CheckAllowDecreaseHeight_Callback(const std_msgs::Bool &msg);
 
 		bool EnableLand_Service(std_srvs::SetBool::Request &request, std_srvs::SetBool::Response &response);
+
+		double Query_DecreaseAltitude();
 };
 
 #endif

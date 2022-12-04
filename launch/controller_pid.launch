@@ -6,6 +6,7 @@
     <node pkg="offboard_control" type="controller_uav_node" name="controller_uav_node" output="screen">
 
         <param name="test_fly_waypoint" value="true" />
+        <param name="marker_pose_topic" value="/aruco_detect/pose"/>
         <!-- <param name="enable_sim" value="true"/> -->
 
         <param name="init_pos_x" value="0.0"/>

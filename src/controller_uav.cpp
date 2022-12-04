@@ -58,9 +58,15 @@ velocityCtrl::velocityCtrl(const ros::NodeHandle &nh, const ros::NodeHandle &nh_
 		: nh_(nh), nh_private_(nh_private), node_state(WAITING_FOR_HOME_POSE), flight_mode(POSITION_MODE), sim_enable_(true)
 
 {
+	std::string marker_pose_topic_name;
+
 	nh_private_.param<bool>("test_fly_waypoint", test_fly_waypoint_, false);
+	nh_private_.param("marker_pose_topic", marker_pose_topic_name, std::string("/aruco_detect/pose"));
 
 	mavposeSub_ = nh_.subscribe("mavros/local_position/pose", 1, &velocityCtrl::mavposeCallback, this, ros::TransportHints().tcpNoDelay());
+
+	mavtwistSub_ = nh_.subscribe("mavros/local_position/velocity_local", 1, &velocityCtrl::mavtwistCallback, this,
+								ros::TransportHints().tcpNoDelay());
 
 	cmdloop_timer_ = nh_.createTimer(ros::Duration(0.01), &velocityCtrl::cmdloopCallback,this);  // Define timer for constant loop rate
 
@@ -81,7 +87,7 @@ velocityCtrl::velocityCtrl(const ros::NodeHandle &nh, const ros::NodeHandle &nh_
 	debug_target = nh_.advertise<geometry_msgs::Vector3> ("/debug_term", 10);
 
 	marker_pose_sub = nh_.subscribe
-		("/tf_marker", 1, &velocityCtrl::ReceivedMarkerPose_Callback, this, ros::TransportHints().tcpNoDelay());
+		(marker_pose_topic_name, 1, &velocityCtrl::ReceivedMarkerPose_Callback, this, ros::TransportHints().tcpNoDelay());
 
 	decrese_height_sub = nh_.subscribe
 		("/decrease_height", 1, &velocityCtrl::CheckAllowDecreaseHeight_Callback, this, ros::TransportHints().tcpNoDelay());
@@ -180,8 +186,13 @@ void velocityCtrl::ReceivedMarkerPose_Callback(const geometry_msgs::PoseStamped 
 	markerPosInBodyFrame_(1) = round(markerPosInBodyFrame_(1)*100) / 100;
 	markerPosInBodyFrame_(2) = round(markerPosInBodyFrame_(2)*100) / 100;
 
-	ROS_INFO_STREAM("Distance to Marker: " << markerPosInBodyFrame_);
-	// received_marker_pose =true;
+	targetPosPredict_(0) = markerPosInBodyFrame_(0);
+	targetPosPredict_(1) = markerPosInBodyFrame_(1);
+
+	range_err = sqrt(pow(markerPosInBodyFrame_(0), 2) + pow(markerPosInBodyFrame_(1), 2));
+
+	// ROS_INFO_STREAM("Distance to Marker: " << markerPosInBodyFrame_);
+	marker_pose_status = RECEIVED_POSE;
 	// std::cout << "point des" << point_des << std::endl;
 };
 
@@ -307,8 +318,49 @@ bool velocityCtrl::check_position(float error, Eigen::Vector3d current, Eigen::V
 		return false;
 }
 
+double velocityCtrl::Query_DecreaseAltitude()
+{
+	if ((sTransitionPoint_1.range < range_err) && (mavPos_(2) >= sTransitionPoint_1.atitule)) {
+
+		return ALLOW_DECREASE;
+	}
+	else if ((sTransitionPoint_2.range < range_err) && (mavPos_(2) >= sTransitionPoint_2.atitule)) {
+		return ALLOW_DECREASE;
+	}
+	else if ((sTransitionPoint_3.range < range_err) && (mavPos_(2) >= sTransitionPoint_3.atitule)) {
+		return ALLOW_DECREASE;
+	}
+	else {
+		return NOT_ALLOW_DECREASE;
+	}
+}
+
 void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 {
+	if (StartLanding_ && marker_pose_status == RECEIVED_POSE && calculate_range == NOT_CALCULATED) {
+
+		sTransitionPoint_1.range = mavPos_(2) * tan(ANGLE_1 * PI/180);
+		sTransitionPoint_1.atitule = mavPos_(2) * 2/3;
+
+		sTransitionPoint_2.range = mavPos_(2) * tan(ANGLE_2 * PI/180) * 2/3;
+		sTransitionPoint_2.atitule = mavPos_(2) * 1/3;
+
+		sTransitionPoint_3.range = mavPos_(2) * tan(ANGLE_3 * PI/180) * 1/3;
+		sTransitionPoint_3.atitule = 0.0;
+
+		calculate_range = CALCULATED;
+
+		ROS_INFO("Update MAX MIN PID");
+		PID_x.setUMax(0.1);
+		PID_x.setUMin(-0.1);
+
+		PID_y.setUMax(0.1);
+		PID_y.setUMin(-0.1);
+
+		PID_z.setUMax(0.1);
+		PID_z.setUMin(-0.1);
+	}
+
 	switch (node_state) {
 		case WAITING_FOR_HOME_POSE:
 		{
@@ -322,7 +374,7 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 		case MISSION_EXECUTION:
 		{
 			switch (flight_mode)
-		{
+			{
 				case POSITION_MODE:
 				{
 					if(check_position(error, mavPos_, targetPos_))
@@ -358,10 +410,10 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 					// Service start landing is called
 					if (StartLanding_) {
 
-						targetPos_(0) = markerPosInBodyFrame_(0);
-						targetPos_(1) = markerPosInBodyFrame_(1);
+						targetPosPredict_(0) = targetPosPredict_(0) - (0.01 * mavVel_(0));
+						targetPosPredict_(1) = targetPosPredict_(1) - (0.01 * mavVel_(1));
 
-						if (AllowDecreaseHeight_) {
+						if (Query_DecreaseAltitude() == ALLOW_DECREASE) {
 
 							targetPos_(2) =  markerPosInBodyFrame_(2);
 
@@ -370,12 +422,25 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 							targetPos_(2) =  0.0;
 						}
 
-						// if (DISTANCE_ON_MARKER(-markerPosInBodyFrame_(2)) < 1.0) {
-						// 	/* Change control mode */
-						// 	node_state = LANDING;
-						// }
+						targetPosPredict_(2) = targetPos_(2);
 
-						getErrorDistanceToTarget(targetPos_, Frame::UAV_BODY_OFFSET_FRAME, ErrorDistance);
+						if (mavPos_(2) < 1.0) {
+							/* Change control mode */
+							node_state = LANDING;
+						}
+
+						if (targetPos_(0) != markerPosInBodyFrame_(0)
+							&& targetPos_(1) != markerPosInBodyFrame_(1)) {
+
+							targetPos_(0) = markerPosInBodyFrame_(0);
+							targetPos_(1) = markerPosInBodyFrame_(1);
+
+							getErrorDistanceToTarget(targetPos_, Frame::UAV_BODY_OFFSET_FRAME, ErrorDistance);
+						}
+						else {
+							// ROS_INFO("Error: [%f, %f]", targetPosPredict_(0), targetPosPredict_(1));
+							getErrorDistanceToTarget(targetPosPredict_, Frame::UAV_BODY_OFFSET_FRAME, ErrorDistance);
+						}
 					}
 
 					/*
@@ -389,6 +454,7 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 					velocity_vector(0) = PID_x.compute(ErrorDistance(0), 0);
 					velocity_vector(1) = PID_y.compute(ErrorDistance(1), 0);
 					velocity_vector(2) = PID_z.compute(ErrorDistance(2), 0);
+
 
 					publish_PIDterm(PID_z.getPTerm(),PID_z.getITerm(), PID_z.getDTerm());
 					// ROS_INFO_STREAM("Got pose! Drone Velocity x " << velocity_vector(0) << " y " << velocity_vector(1) << " z " << velocity_vector(2));

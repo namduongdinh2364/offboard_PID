@@ -65,4 +65,10 @@ target_link_libraries(controller_uav_node ${catkin_LIBRARIES} offboard_pid)
 add_executable(setmode_offb_node src/setmode_offb.cpp)
 target_link_libraries(setmode_offb_node ${catkin_LIBRARIES})
 
+
+add_executable(start_landing_service
+  src/service_land.cpp
+)
+target_link_libraries(start_landing_service ${catkin_LIBRARIES})
+
 # target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES})
