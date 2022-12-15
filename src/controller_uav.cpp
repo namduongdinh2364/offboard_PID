@@ -15,6 +15,9 @@
 #define USE_MARKER				0
 #define USE_BODY_OFFSET			1
 
+#define K_MOVING_TIME			2.5
+#define HALTING_TIME			1.5
+
 
 using namespace Eigen;
 using namespace std;
@@ -169,6 +172,10 @@ velocityCtrl::velocityCtrl(const ros::NodeHandle &nh, const ros::NodeHandle &nh_
 	PID_yaw.SetModeD(ON_ERROR);
 
 	error = 0.15;
+
+	sMovingTime_.time = 0.0;
+	sMovingTime_.status = NEED_CALCULATE_AGIAN;
+
 
 	cam2drone_matrix_ << 0.0 , -1.0 , 0.0 , -1.0 , 0.0 , 0.0 , 0.0 , 0.0 , -1.0;
 }
@@ -410,36 +417,61 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 					// Service start landing is called
 					if (StartLanding_) {
 
-						targetPosPredict_(0) = targetPosPredict_(0) - (0.01 * mavVel_(0));
-						targetPosPredict_(1) = targetPosPredict_(1) - (0.01 * mavVel_(1));
+						if (sMovingTime_.status == NEED_CALCULATE_AGIAN) {
 
-						if (Query_DecreaseAltitude() == ALLOW_DECREASE) {
+							sMovingTime_.time = getMovingTimeFromeError();
 
-							targetPos_(2) =  markerPosInBodyFrame_(2);
-
-						} else {
-
-							targetPos_(2) =  0.0;
 						}
 
-						targetPosPredict_(2) = targetPos_(2);
+						if (ros::Time::now() - last_time_moving_ >= ros::Duration(sMovingTime_.time)) {
 
-						if (mavPos_(2) < 1.0) {
-							/* Change control mode */
-							node_state = LANDING;
-						}
+							if (ros::Time::now() - last_time_moving_ >= ros::Duration(sMovingTime_.time + HALTING_TIME)) {
 
-						if (targetPos_(0) != markerPosInBodyFrame_(0)
-							&& targetPos_(1) != markerPosInBodyFrame_(1)) {
+								sMovingTime_.status = NEED_CALCULATE_AGIAN;
+							}
 
-							targetPos_(0) = markerPosInBodyFrame_(0);
-							targetPos_(1) = markerPosInBodyFrame_(1);
+							velocity_vector(0) = 0.0;
+							velocity_vector(1) = 0.0;
+							velocity_vector(2) = -0.05;
 
-							getErrorDistanceToTarget(targetPos_, Frame::UAV_BODY_OFFSET_FRAME, ErrorDistance);
+							pubVelocity(velocity_vector);
+
+							break;
 						}
 						else {
-							// ROS_INFO("Error: [%f, %f]", targetPosPredict_(0), targetPosPredict_(1));
-							getErrorDistanceToTarget(targetPosPredict_, Frame::UAV_BODY_OFFSET_FRAME, ErrorDistance);
+
+							targetPosPredict_(0) = targetPosPredict_(0) - (0.01 * mavVel_(0));
+							targetPosPredict_(1) = targetPosPredict_(1) - (0.01 * mavVel_(1));
+
+							if (Query_DecreaseAltitude() == ALLOW_DECREASE) {
+
+								targetPos_(2) =  markerPosInBodyFrame_(2);
+
+							} else {
+
+								targetPos_(2) =  0.0;
+							}
+
+							targetPosPredict_(2) = targetPos_(2);
+
+							if (mavPos_(2) < 1.0) {
+								/* Change control mode */
+								node_state = LANDING;
+							}
+
+							if (targetPos_(0) != markerPosInBodyFrame_(0)
+								&& targetPos_(1) != markerPosInBodyFrame_(1)) {
+
+								targetPos_(0) = markerPosInBodyFrame_(0);
+								targetPos_(1) = markerPosInBodyFrame_(1);
+
+								getErrorDistanceToTarget(targetPos_, Frame::UAV_BODY_OFFSET_FRAME, ErrorDistance);
+							}
+							else {
+								// ROS_INFO("Error: [%f, %f]", targetPosPredict_(0), targetPosPredict_(1));
+								getErrorDistanceToTarget(targetPosPredict_, Frame::UAV_BODY_OFFSET_FRAME, ErrorDistance);
+							}
+
 						}
 					}
 
@@ -498,6 +530,23 @@ void velocityCtrl::cmdloopCallback(const ros::TimerEvent &event)
 			break;
 		}
 	}
+}
+
+double velocityCtrl::getMovingTimeFromeError()
+{
+	double diagonal;
+	double time;
+
+	diagonal = sqrt(pow(markerPosInBodyFrame_(0), 2) + pow(markerPosInBodyFrame_(1), 2));
+
+	time = diagonal * K_MOVING_TIME;
+	ROS_INFO_STREAM("Moving time: " << time);
+
+	sMovingTime_.status = CALCULATED;
+
+	last_time_moving_ = ros::Time::now();
+
+	return time;
 }
 
 void velocityCtrl::getErrorDistanceToTarget(const Eigen::Vector3d &target_position, Frame FrameType, Eigen::Vector3d &ErrorDistance) {

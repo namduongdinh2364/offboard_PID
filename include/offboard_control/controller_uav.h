@@ -41,18 +41,19 @@
 using namespace std;
 using namespace Eigen;
 
-#define NOT_RECEIVED_POSE	0
-#define RECEIVED_POSE		1
+#define NOT_RECEIVED_POSE		0
+#define RECEIVED_POSE			1
 
-#define CALCULATED			1
-#define NOT_CALCULATED		0
+#define NOT_CALCULATED			0
+#define CALCULATED				1
+#define NEED_CALCULATE_AGIAN	2
 
-#define ALLOW_DECREASE		1
-#define NOT_ALLOW_DECREASE	0
+#define ALLOW_DECREASE			1
+#define NOT_ALLOW_DECREASE		0
 
-#define ANGLE_1 			15.0
-#define ANGLE_2 			10.0
-#define ANGLE_3 			10.0
+#define ANGLE_1 				15.0
+#define ANGLE_2 				10.0
+#define ANGLE_3 				10.0
 
 enum class Axis {
 	ROLL,
@@ -69,6 +70,13 @@ struct TransitionPoint {
 
 	double range;
 	double atitule;
+
+};
+
+struct MovingTime {
+
+	double time;
+	double status;
 
 };
 
@@ -157,6 +165,9 @@ class velocityCtrl
 
 		PidControllerBase PID_x, PID_y, PID_z, PID_yaw;
 
+		struct MovingTime sMovingTime_;
+		ros::Time last_time_moving_;
+
 		std::vector<double> setPoint_[4];
 
 	public:
@@ -184,6 +195,7 @@ class velocityCtrl
 		bool EnableLand_Service(std_srvs::SetBool::Request &request, std_srvs::SetBool::Response &response);
 
 		double Query_DecreaseAltitude();
+		double getMovingTimeFromeError();
 };
 
 #endif
