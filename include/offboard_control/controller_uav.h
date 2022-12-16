@@ -168,6 +168,8 @@ class velocityCtrl
 		struct MovingTime sMovingTime_;
 		ros::Time last_time_moving_;
 
+		double T_, t_;
+
 		std::vector<double> setPoint_[4];
 
 	public:
